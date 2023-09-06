@@ -37,6 +37,7 @@ bool alive = false;
 int playerId = 0;
 int mypoints = 0;
 uint32_t bound_vest;
+uint64_t connect_time;
 
 int brightness = 64; // must be an even number
 
@@ -75,12 +76,13 @@ SimpleList<uint32_t> nodes;
 uint32_t *node_array;
 int size;
 
-void decode();
+void IRRecv();
+void kill();
 
 void red_laser();
 
 // Task taskLoopAudio(TASK_MILLISECOND * 50,TASK_FOREVER,&LoopAudio);
-Task taskDecode(TASK_MILLISECOND * 70, TASK_FOREVER, &decode, &userScheduler, true);
+Task taskDecode(TASK_MILLISECOND * 70, TASK_FOREVER, &IRRecv, &userScheduler, true);
 
 IRsend sender(TRX_PIN);
 
@@ -153,46 +155,6 @@ void regenerate(void *param)
     Lasermesh.sendSingle(bound_vest, "alive");
     strip.SetPixelColor(0, RgbColor(0, brightness, 0));
     strip.Show();
-  }
-}
-
-void decode()
-{
-
-  // Serial.println("Trying to decode");
-
-  if (receiver.decode(&results))
-  {
-
-    Serial.println("#################");
-    Serial.print("Decode Type:");
-    Serial.println(results.decode_type);
-
-    Serial.print("Team:");
-    Serial.println(results.command >> 4);
-
-    Serial.print("Player:");
-    Serial.println(results.address);
-
-    Serial.print("Dammage:");
-    Serial.println(results.command & 0x30);
-
-    oledPrint(String("Message!"));
-    oledPrint(String("T:") + (results.command >> 4) + " P:" + results.address + String(" D:") + (results.command & 0x30) + " Type:" + results.decode_type);
-
-    if (results.decode_type == 97)
-    {
-      alive = false;
-      vTaskResume(regen_task_handle);
-      strip.SetPixelColor(0, RgbColor(brightness, 0, 0));
-      strip.Show();
-
-      // serialPrintUint64(results.value, HEX);
-      Serial.println("");
-    }
-    receiver.resume(); // Receive the next value
-    // delay(2000);
-    // Serial.println("End of the loop");
   }
 }
 
@@ -372,6 +334,16 @@ void receivedCallback(uint32_t from, String &msg)
 {
   Serial.printf("startHere: Received from %u msg=%s\n", from, msg.c_str());
 
+  if (from == bound_vest && atoi(msg.c_str()) != 0)
+  {
+    kill(MILESTAG2, atoi(msg.c_str()) >> 4);
+  }
+
+  if (msg == "bound" && connect_time > millis())
+  {
+    bound_vest = from;
+  }
+
   if (msg == "Start_Game")
   {
 
@@ -413,12 +385,56 @@ void Fill_Strip(uint16_t from, uint16_t to, RgbColor color)
 
 void Connect_Vest()
 {
-  uint64_t connect_time = millis() + VEST_CONNECTTIME;
+  connect_time = millis() + VEST_CONNECTTIME;
   while (connect_time < millis())
   {
     if (digitalRead(SHOOT_BUTTON) == LOW)
     {
       sendMilesTag(playerId, TeamId, 15);
     }
+  }
+}
+
+void kill(decode_type_t decode_type, uint8_t teamId)
+{
+  if (decode_type == MILESTAG2 && teamId != TeamId)
+  {
+    alive = false;
+    vTaskResume(regen_task_handle);
+    strip.SetPixelColor(0, RgbColor(brightness, 0, 0));
+    strip.Show();
+
+    // serialPrintUint64(results.value, HEX);
+  }
+}
+
+void IRRecv()
+{
+
+  // Serial.println("Trying to decode");
+
+  if (receiver.decode(&results))
+  {
+
+    Serial.println("#################");
+    Serial.print("Decode Type:");
+    Serial.println(results.decode_type);
+
+    Serial.print("Team:");
+    Serial.println(results.command >> 4);
+
+    Serial.print("Player:");
+    Serial.println(results.address);
+
+    Serial.print("Dammage:");
+    Serial.println(results.command & 0x30);
+
+    oledPrint(String("Message!"));
+    oledPrint(String("T:") + (results.command >> 4) + " P:" + results.address + String(" D:") + (results.command & 0x30) + " Type:" + results.decode_type);
+
+    kill(results.decode_type, results.command >> 4);
+    receiver.resume(); // Receive the next value
+    // delay(2000);
+    // Serial.println("End of the loop");
   }
 }
